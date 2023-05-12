@@ -1,0 +1,180 @@
+Version 3.3.0 (???):
+  - Bugfix: get_*_property() convenience functions were declared but not defined.
+  - New: Unstable/ for work-in-progress APIs
+  - New: local topology helper classes in Unstable/Topology/:
+        - Consistent local entity labeling
+        - TetTopology and TriangleTopology
+  - New: std::hash specialization for handle types, so they can be used in std::unordered_map
+  - Improvement: make TopologyKernel::reorder_incident_halffaces public to properly support existing 
+                 public methods that alter internal data
+
+Version 3.2.2 (2022-10-13):
+  - Add various convenience property convenience functions, e.g.
+        - `mesh.create_{shared, persistent, private}_{vertex, edge, ...}_property()`
+        - `mesh.get_{vertex, edge, ...}_property()`
+  - Un-deprecate other convenience functions, e.g. mesh.clear_{vertex, ...}_props()
+  - (Fix some compiler warnings)
+
+Version 3.2.1 (2022-08-18):
+  - Fix OVMB float endianness (#43)
+
+Version 3.2.0 (2022-07-29):
+  - Feature: add new `find_halfface_in_cell(VH,VH,CH)` function to TopologyKernel
+  - Feature: add new `find_halfedge_in_cell(vector<VH>,CH)` function to TopologyKernel
+  - Feature: Move get_halfface_vertices from Tet-TopoKernel to general TopologyKernel
+  - Improvement: Rename half{face,edge}*() to find_half{face,edge}*(), deprecate old APIs
+
+Version 3.1.1 (2022-07-29):
+  - Fix OVMB property codec names for Eigen float matrices (was "d" instead of "f").
+    Files that were saved with float matrices are unfortunately unreadable and need to be manually fixed.
+
+
+Version 3.1.0 (2022-06-28):
+  - Features:
+    - Implement mesh copy assignment
+  - Improvements:
+    - Add basic tests for attributes
+    - Make all Attribs assignable (use pointer instead of reference)
+    - Insert missing OVM_EXPORT in BoundaryItemIter
+  - Bugfixes:
+    - Fix CellFaceIter:operator--() wraparound bug
+
+Version 3.0.5 (2022-06-17):
+  - Safe copy construction for meshes:
+    After removal of copy/move constructors/assignments in 3.0.3, after
+    we discovered dangerous bugs in property handling, this release
+    re-introduces a simpler mesh copy constructor that only clones persistent
+    properties.
+  - Make the properties used in OpenFlipper assignable by using a pointer
+    instead of references to the mesh
+
+Version 3.0.4 (2022-06-16):
+  Improvements contributed by Hendrik Brückler of UOS:
+  - Support for self-adjacent cells (i.e., cells that contain both halffaces of a face),
+      where we had inconsistent behaviour previously:
+    - adjacent_halfface_in_cell() now considers halfedge direction (if relevant)
+    - reorder_incident_halffaces() now calls the above with correct halfedge orientation
+  - Fix a bug in Hex mesh adjacent_halfface_on_sheet
+
+Version 3.0.3 (2022-06-13):
+  - Hotfix: disable mesh assignment operators for now, they are currently broken
+            and can leave properties in bad states.
+            cf. gitlab issue #34.
+
+Version 3.0.2 (2022-02-17)
+  - Handle::is_valid(): treat all negative indices as invalid, not just -1. Bug discovered by Heng Liu.
+
+Version 3.0.1 (2022-02-12)
+  - Fix `swap_vertex_indices` for two vertices connected by an edge (before, the edge was unchanged). Bug discovered by Denis Kalmykov.
+
+Version 3.0 (2022-02-11)
+  - Minimum C++ version is now 17 instead of 11
+  - Property system redesign:
+    - Properties can be shared or private (in addition to being 'persistent'):
+        - private properties are "invisible", i.e. request_*_prop etc do not find it (e.g. create a second property)!
+        - persistent properties must always be shared
+        - private properties can be created on const meshes: create_private_property()
+        - `set_shared()` can switch a property between shared and private
+        - `set_persistent()` can switch a property between shared and persistant
+    - Property Handles were abolished, they were never fully implemented
+    - Removed size_of, element_size etc.
+    - Iteration over a `ResourceManager` (Mesh)'s persistent properties without exposing internals
+    - Hide some internals from the publicly accessible property types
+    - Add `ResourceManager::n_persistent_props<Entity::Vertex/...>` and `n_props<Entity>`
+    - `prop->n_elements` replaced by `prop.size()`
+
+  - *Handle type changes:
+    - No more direct comparison operators with ints without conversion
+    - New methods:
+        - `HalfEdgeHandle`:
+            - `edge_handle()`
+            - `opposite_handle()`
+            - `subidx() -> {0, 1}`
+        - `HalfFaceHandle`:
+            - `face_handle()`
+            - `opposite_handle()`
+            - `subidx() -> {0, 1}`
+        - `EdgeHandle`: `halfedge_handle({0, 1})`
+        - `FaceHandle`: `halfface_handle({0, 1})`
+    - Halfface- and halfedge-handles handles gain .subidx()->{0,1} and .face_handle()/edge_handle() member function
+    - Face- and edge-handles handles gain a .half({0,1}) member function
+
+  - Other new features:
+    - `HandleIndexing` allows enforcing handle-safe indexing into vectors
+
+  - Other API changes:
+    - `TopologyKernel`:
+        - remove `delete_multiple_*` and `delete_cell_range`: they were unsafe to use and not very useful anymore.
+    - Iterators: add `is_valid()` to replace `valid()` for consistency with handle API
+
+Version 2.2.5 (2022-02-11)
+  - Add VtkColorReader class (thanks to PA Beaufort)
+
+Version 2.2.4 (2022-02-11)
+  - Unittest build fix
+
+Version 2.2.3 (2022-02-11)
+  - Bugfix: swap_*_indices would not properly swap bool properties (bug discovered by Denis Kalmykov)
+
+Version 2.2.2 (2021-11-19)
+  - CMake: disable automoc/autouic for better integration into projects that use Qt
+  - NormalAttrib fix: actually save the computed normal
+
+Version 2.2 (2021-08-13)
+  Behaviour improvements:
+    - TetrahedralMeshTopologyKernel:
+        - split_edge and split_face now copy cell properties of the deleted cells to the newly created ones
+        - intermediate non-manifold situations are avoided
+  Performance improvements:
+    - Utilize std::vector::reserve to avoid reallocations
+  API changes:
+    - add_{face,edge,cell} takes an std::vector by value instead of by const reference.
+    - add_face topology check is more strict: the halfedges need to be in circular order.
+    - (half)edge_vertices(), face_halffaces(), edge_halfedges(), face_halffaces(), face_cells(): Return std::array<*Handle,2> instead of vector.
+
+Version 2.1 (2019/09/09)
+- Modern target-based CMake 3 build system
+- !!!Break compatiblity with C++98, require C++11 as mininum!!!
+- Renamed *T.cc into *T_impl.hh to avoid ugly problems ith several IDEs
+- Fix bug in halfface reordering
+- Track if garbage collection is necessary.
+- Ignore non-serializable datatypes when saving properties instead of throwing exception.
+- Add support for C++11 range-for for iterator pairs
+- mark vertex_cells and halfedge_cells as const
+- Implement Property copy(src_idx, dst_idx) analogue of OpenMesh properties
+- Append d to debug library
+- Add vertex vertex iterator to iterate over one-ring of a vertex
+- Add vertex face iterator to iterate over all faces incident to a vertex
+- Implement ptr::make_unique and clean up pre-c++11 ifdefs.
+- Disable file_converter if boost is not found.
+- Make handle constructors explicit
+- Made property handle constructors explicit
+- Enable range iterators on MSVC
+- Fix mesh copying by implementing copy constructors and clone methods
+- Fix bug in edge split of tetrahedral meshes
+- Ensure that halfface iterators start with a boundary halffaces when cells are deleted
+- Added new iterators (VertexIHalfEdgeIter, VertexEdgeIter, VertexHalfFaceIter, EdgeHalfFaceIter, EdgeFaceIter, EdgeCellIter)
+- Added `hidden` flag to StatusAttrib for visualisation purposes
+- Added InterfaceAttrib to denote interior interfaces
+
+
+
+Version 2.0 (2016/08/03)
+- Added Tetrahedral Mesh class
+- Implemented fast and deferred deletion of entities
+- Improved serializiers
+- Allow to force static casts when requesting properties
+- Fixed some bugs in swap methods
+- Fix bug in adding a hex cell with valence 2 edge
+- Fix a bug when swapping deleted cells
+- Updated vector class to latest OpenMesh vector
+- Move vector helpers into OpenVolumeMesh::Geometry namespace
+- Remove html literal operator
+
+Version 1.2 (2015/10/01)
+
+- Status Attribute offers a garbage collection which removes all elements previously tagged as deleted.
+- Circulators will now circulate as often as desired.
+- Property (de)serialization now done via (de)serialize functions allowing to customize (de)serialization for custom properties.
+- Fixed some compatibility issues.
+- Various smaller improvements and bugfixes.

@@ -1,0 +1,21 @@
+.project
+.cproject
+CMakeLists.txt.user
+build*
+*.swp
+.settings
+.vs
+
+cppcheck.log
+
+# gcov output files:
+
+*.gcda
+*.gcno
+.DS_Store
+.idea
+/cmake-build-*
+CMakeUserPresets.json
+*.orig
+.vim
+.cache

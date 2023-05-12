@@ -127,3 +127,12 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+
+build/
+
+src/logs
+TetWild/build
+OpenVolumeMesh/build
+data/
+

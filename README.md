@@ -118,7 +118,7 @@ cd NeRF-Editing/src
 python exp_runner.py --mode validate_mesh --conf ./confs/womask_hbychair.conf --case hbychair_neus --is_continue
 
 # Render before deformation
-python exp_runner.py --mode circle --conf ./confs/womask_hbychair_render.conf --case hbychair_neus --is_continue  --obj_path ./logs/hbychair_wo_mask/meshes/00170000.obj
+python exp_runner.py --mode circle --conf ./confs/womask_hbychair_render.conf --case hbychair_neus --is_continue  --obj_path ./logs/hbychair_wo_mask/meshes/00170000.obj # Here 00170000.obj is the last mesh extracted from the previous step (training)
 
 # Optimize the converted video (optional)
 ffmpeg -i ./logs/hbychair_wo_mask/render_circle/video.mp4 ./logs/hbychair_wo_mask/render_circle/out_1.mp4 -y

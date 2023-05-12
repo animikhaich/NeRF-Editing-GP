@@ -1,7 +1,5 @@
 # NeRF-Editing
 
-![Teaser image](./img/teaser.gif)
-
 ## Environment Setup
 
 Install CUDA 11.7 from [here](https://developer.nvidia.com/cuda-11-7-1-download-archive).
@@ -22,6 +20,13 @@ pip install ./pyopengl
 
 # Install Remaining Dependencies
 pip install -r requirements.txt
+
+#Build Colmap
+git clone https://github.com/Totoro97/NeuS.git
+cd NeuS
+pip install -r requirements.txt 
+cd colmap_preprocess
+python imgs2poses.py ${data_dir}
 
 # Build OpenVolumeMesh
 cd OpenVolumeMesh/OpenVolumeMesh
@@ -92,9 +97,9 @@ For the remaining steps we provide ready-made bash scripts which allow step by s
 bash post_training.sh
 ```
 
-# Deform the mesh: Kathakoli, edit this. 
+# Deform the mesh:  
 Download blender from here: https://www.blender.org/download/
-
+# Use blender deformations to deform the mesh
 
 Post deformation, run the following script to render the deformed mesh.
 ```bash

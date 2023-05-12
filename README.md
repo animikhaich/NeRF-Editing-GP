@@ -90,6 +90,18 @@ The dataset directory structure looks like this:
 ```
 NeRF Dataset Source: [nerf-synthetic dataset](https://drive.google.com/drive/folders/128yBriW1IG_3NJ5Rp7APSTZsJqdJdfc1)
 
+## Functionalities
+The `exp_runner.py` file works as the training entrypoint, which trains the NeRF model as well as validates it. It is also responsible for rendering the mesh. It has the following functionalities:
+1. train: Train the model
+2. validate_mesh: Extract mesh from the model
+3. circle: Render the model
+4. render_video: Render the model from different viewpoints
+5. render_video_with_mask: Render the model from different viewpoints with mask
+
+The `barycentric_control_pts_jittor.py` file is used to calculate the barycentric control points for the mesh. It is a pre-requisite for the volume ARAP step.
+
+Both of the above files are based on an open source deep learning library called `jittor`, which is a high-performance deep learning framework based on JIT compiling and meta-operators. It is also compatible with PyTorch. The code is written in a way that it can be easily ported to PyTorch.
+
 ## Steps to run the code
 ```
 python exp_runner.py --mode train --conf ./confs/womask_hbychair.conf --case hbychair_neus

@@ -16,7 +16,17 @@ from tensorboardX import SummaryWriter
 
 
 class Runner:
+    """
+    This class is used to train and test the model.
+    """
     def __init__(self, conf_path, mode='train', case='CASE_NAME', is_continue=False):
+        """
+        conf_path: the path of the configuration file
+        mode: 'train' or 'test'
+        case: the name of the case
+        is_continue: whether to continue training from the last checkpoint
+        """
+
 
         # Configuration
         self.conf_path = conf_path
@@ -93,32 +103,43 @@ class Runner:
             self.file_backup()
 
     def train(self):
+        """
+        Train the model.
+        """
         self.writer = SummaryWriter(log_dir=os.path.join(self.base_exp_dir, 'logs'))
         self.update_learning_rate()
         res_step = self.end_iter - self.iter_step
         image_perm = self.get_image_perm()
 
+        # Training loop
         for iter_i in tqdm(range(res_step)):
+            # Load data
             data = self.dataset.gen_random_rays_at(image_perm[self.iter_step % len(image_perm)], self.batch_size)
 
+            # Process the data
             rays_o, rays_d, true_rgb, mask = data[:, :3], data[:, 3: 6], data[:, 6: 9], data[:, 9: 10]
             near, far = self.dataset.near_far_from_sphere(rays_o, rays_d)
             # near, far = 1 * torch.ones_like(near), 100 * torch.ones_like(far)
 
+            # Background
             background_rgb = None
             if self.use_white_bkgd:
                 background_rgb = jt.ones([1, 3])
 
+            # Mask
             if self.mask_weight > 0.0:
                 mask = (mask > 0.5).float()
             else:
                 mask = jt.ones_like(mask)
 
             mask_sum = mask.sum() + 1e-5
+
+            # Render
             render_out = self.renderer.render(rays_o, rays_d, near, far,
                                               background_rgb=background_rgb,
                                               cos_anneal_ratio=self.get_cos_anneal_ratio())
 
+            # Get outputs
             color_fine = render_out['color_fine']
             s_val = render_out['s_val']
             cdf_fine = render_out['cdf_fine']
@@ -132,6 +153,7 @@ class Runner:
             color_fine_loss = color_error.abs().sum() / mask_sum
             psnr = 20.0 * jt.log2(1.0 / (((color_fine - true_rgb)**2 * mask).sum() / (mask_sum * 3.0)).sqrt()) / jt.log2(10)
 
+            # Eikonal loss
             eikonal_loss = gradient_error
 
             mask_loss = jt.nn.binary_cross_entropy_with_logits(weight_sum.safe_clip(1e-3, 1.0 - 1e-3), mask)
@@ -145,13 +167,15 @@ class Runner:
                 # print("***** Nan loss with %d ray *****" % (color_fine.isnan().sum()))
                 # print("Current image index is %d ." % (int(image_perm[self.iter_step % len(image_perm)])))
                 continue
-
+            
+            # Backward Propagation
             self.optimizer.zero_grad()
             self.optimizer.backward(loss)
             self.optimizer.step()
 
             self.iter_step += 1
 
+            # Log the training metrics
             self.writer.add_scalar('Loss/loss', loss.numpy(), self.iter_step)
             self.writer.add_scalar('Loss/color_loss', color_fine_loss.numpy(), self.iter_step)
             self.writer.add_scalar('Loss/eikonal_loss', eikonal_loss.numpy(), self.iter_step)
@@ -160,38 +184,46 @@ class Runner:
             self.writer.add_scalar('Statistics/weight_max', ((weight_max * mask).sum() / mask_sum).numpy(), self.iter_step)
             self.writer.add_scalar('Statistics/psnr', psnr.numpy(), self.iter_step)
 
+            # Report
             if self.iter_step % self.report_freq == 0:
                 print(self.base_exp_dir)
                 print('iter:{:8>d} loss = {} lr={}'.format(self.iter_step, loss, self.optimizer.param_groups[0]['lr']))
 
+            # Save checkpoint
             if self.iter_step % self.save_freq == 0:
                 self.save_checkpoint()
 
+            # Validate
             if self.iter_step % self.val_freq == 0:
                 self.validate_image()
                 # print("Cancle the image validataion due to CUDA OOM")
 
+            # Validate mesh
             if self.iter_step % self.val_mesh_freq == 0:
                 self.validate_mesh()
                 # print("Cancle the mesh validataion due to CUDA OOM")
 
+            # Update learning rate
             self.update_learning_rate()
 
             if self.iter_step % len(image_perm) == 0:
                 image_perm = self.get_image_perm()
 
     def get_image_perm(self):
+        """Get the permutation of the images for training."""
         return jt.randperm(self.dataset.n_images)
         # logging.debug("Debug by traversing images sequentially")
         # return jt.arange(self.dataset.n_images)
 
     def get_cos_anneal_ratio(self):
+        """Get the cosine annealing ratio."""
         if self.anneal_end == 0.0:
             return 1.0
         else:
             return np.min([1.0, self.iter_step / self.anneal_end])
 
     def update_learning_rate(self):
+        """Update the learning rate."""
         if self.iter_step < self.warm_up_end:
             learning_factor = self.iter_step / self.warm_up_end
         else:
@@ -203,6 +235,7 @@ class Runner:
             g['lr'] = self.learning_rate * learning_factor
 
     def file_backup(self):
+        """Backup the files."""
         dir_lis = self.conf['general.recording']
         os.makedirs(os.path.join(self.base_exp_dir, 'recording'), exist_ok=True)
         for dir_name in dir_lis:
@@ -216,6 +249,7 @@ class Runner:
         copyfile(self.conf_path, os.path.join(self.base_exp_dir, 'recording', 'config.conf'))
 
     def load_checkpoint(self, checkpoint_name):
+        """Load the checkpoint."""
         checkpoint = jt.load(os.path.join(self.base_exp_dir, 'checkpoints', checkpoint_name))
         self.nerf_outside.load_state_dict(checkpoint['nerf'])
         self.sdf_network.load_state_dict(checkpoint['sdf_network_fine'])
@@ -227,6 +261,7 @@ class Runner:
         logging.info('End')
 
     def save_checkpoint(self):
+        """Save the checkpoint."""
         checkpoint = {
             'nerf': self.nerf_outside.state_dict(),
             'sdf_network_fine': self.sdf_network.state_dict(),
@@ -240,11 +275,13 @@ class Runner:
         jt.save(checkpoint, os.path.join(self.base_exp_dir, 'checkpoints', 'ckpt_{:0>6d}.pkl'.format(self.iter_step)))
 
     def validate_image(self, idx=-1, resolution_level=-1):
+        """Validate the image."""
         if idx < 0:
             idx = np.random.randint(self.dataset.n_images)
 
         print('Validate: iter: {}, camera: {}'.format(self.iter_step, idx))
 
+        # Get rays
         if resolution_level < 0:
             resolution_level = self.validate_resolution_level
         rays_o, rays_d = self.dataset.gen_rays_at(idx, resolution_level=resolution_level)
@@ -255,6 +292,7 @@ class Runner:
         out_rgb_fine = []
         out_normal_fine = []
 
+        # Render
         for rays_o_batch, rays_d_batch in zip(rays_o, rays_d):
             near, far = self.dataset.near_far_from_sphere(rays_o_batch, rays_d_batch)
             background_rgb = jt.ones([1, 3]) if self.use_white_bkgd else None
@@ -279,10 +317,12 @@ class Runner:
                 out_normal_fine.append(normals)
             del render_out
 
+        # Get rgb
         img_fine = None
         if len(out_rgb_fine) > 0:
             img_fine = (np.concatenate(out_rgb_fine, axis=0).reshape([H, W, 3, -1]) * 256).clip(0, 255)
 
+        # Get normals
         normal_img = None
         if len(out_normal_fine) > 0:
             normal_img = np.concatenate(out_normal_fine, axis=0)
@@ -290,9 +330,11 @@ class Runner:
             normal_img = (np.matmul(rot[None, :, :], normal_img[:, :, None])
                           .reshape([H, W, 3, -1]) * 128 + 128).clip(0, 255)
 
+        # Create directories
         os.makedirs(os.path.join(self.base_exp_dir, 'validations_fine'), exist_ok=True)
         os.makedirs(os.path.join(self.base_exp_dir, 'normals'), exist_ok=True)
 
+        # Save images
         for i in range(img_fine.shape[-1]):
             if len(out_rgb_fine) > 0:
                 cv.imwrite(os.path.join(self.base_exp_dir,
@@ -310,34 +352,67 @@ class Runner:
         """
         Interpolate view between two cameras.
         """
+        # Generate rays between the two camera indices
         rays_o, rays_d = self.dataset.gen_rays_between(idx_0, idx_1, ratio, resolution_level=resolution_level)
+        
+        # Get dimensions of rays_o
         H, W, _ = rays_o.shape
+        
+        # Reshape rays_o and rays_d
         rays_o = rays_o.reshape(-1, 3).split(self.batch_size)
         rays_d = rays_d.reshape(-1, 3).split(self.batch_size)
-
+        
         out_rgb_fine = []
+        
+        # Render the interpolated view
         for rays_o_batch, rays_d_batch in zip(rays_o, rays_d):
+            # Compute near and far values for the batch of rays
             near, far = self.dataset.near_far_from_sphere(rays_o_batch, rays_d_batch)
+            
+            # Set background color
             background_rgb = jt.ones([1, 3]) if self.use_white_bkgd else None
-
+            
+            # Render the view
             render_out = self.renderer.render(rays_o_batch,
-                                              rays_d_batch,
-                                              near,
-                                              far,
-                                              cos_anneal_ratio=self.get_cos_anneal_ratio(),
-                                              background_rgb=background_rgb)
-
+                                            rays_d_batch,
+                                            near,
+                                            far,
+                                            cos_anneal_ratio=self.get_cos_anneal_ratio(),
+                                            background_rgb=background_rgb)
+            
+            # Append rendered image to the list
             out_rgb_fine.append(render_out['color_fine'].detach().cpu().numpy())
-
+            
+            # Clean up memory
             del render_out
-
+        
+        # Concatenate and reshape the rendered images
         img_fine = (np.concatenate(out_rgb_fine, axis=0).reshape([H, W, 3]) * 256).safe_clip(0, 255).astype(np.uint8)
+        
         return img_fine
 
 
     def render_image(self, render_pose, use_deform=False, query_delta=None,
            hull=None, deltas=None, mesh=None, c2w_staticcam=None):
+        """
+        Render an image from a given pose.
+
+        Args:
+            render_pose: pose of the camera
+            use_deform: whether to use deformations
+            query_delta: deformation to query
+            hull: hull of the mesh
+            deltas: deformations of the mesh
+            mesh: mesh to render
+            c2w_staticcam: camera pose for static camera
+
+        Returns:
+            img_fine: rendered image
+            normal_img: rendered normal image
+        """
         out_rgb_fine = []
+
+        # Get rays
         if mesh != None:
             rays_o, rays_d, depth = self.dataset.gen_rays_at_pose_with_depth(render_pose, mesh, resolution_level=2)
             rays_o, rays_d = self.dataset.gen_rays_at_pose(render_pose, resolution_level=2)
@@ -356,6 +431,8 @@ class Runner:
             Num = len(rays_o.reshape(-1, 3).split(self.batch_size))
             view_dirs = [None] * Num
 
+
+        # Get rays
         H, W, _ = rays_o.shape
         rays_o = rays_o.reshape(-1, 3).split(self.batch_size)
         rays_d = rays_d.reshape(-1, 3).split(self.batch_size)
@@ -395,35 +472,39 @@ class Runner:
                                             vis_coord_ind=vis_coord_ind)
             vis_coord_ind -= self.batch_size
 
-            ttt = time.time()
-            # out_rgb_fine.append(render_out['color_fine'].numpy())
-            # out_rgb_fine[-1] = np.concatenate([out_rgb_fine[-1], \
-            #     render_out['weights'].sum(dim=-1, keepdims=True).numpy()], axis=-1)
             out_rgb_fine.append(np.concatenate([render_out['color_fine'].numpy(), render_out['weights'].sum(dim=-1, keepdims=True).numpy()], axis=-1))
             del render_out
-            # print("post process cost %s" % (time.time() - ttt))
-            # print("..............")
 
         print("rendering cost time:", time.time()-t1)
-        # img_fine = (np.concatenate(out_rgb_fine, axis=0).reshape([H, W, 3]) * 256).safe_clip(0, 255).astype(np.uint8)
         img_fine = (np.concatenate(out_rgb_fine, axis=0).reshape([H, W, 4]) * 256).clip(0, 255).astype(np.uint8)
-        # if mesh != None:
-        #     img_fine = np.concatenate([img_fine, mask], axis=-1)
         return img_fine
 
     def validate_mesh(self, world_space=False, resolution=64, threshold=0.0, with_color=False, do_dilation=False):
+        """
+        Validate the mesh.
+
+        Args:
+            world_space: whether to use world space
+            resolution: resolution of the mesh
+            threshold: threshold for the mesh
+            with_color: whether to use color
+            do_dilation: whether to do dilation
+
+        Returns:
+            mesh: the mesh
+            
+        """
         bound_min = jt.float32(self.dataset.object_bbox_min)
         bound_max = jt.float32(self.dataset.object_bbox_max)
 
-        vertices, triangles =\
-            self.renderer.extract_geometry(bound_min, bound_max, resolution=resolution, threshold=threshold, do_dilation=do_dilation)
+        # Extract geometry
+        vertices, triangles = self.renderer.extract_geometry(bound_min, bound_max, resolution=resolution, threshold=threshold, do_dilation=do_dilation)
         os.makedirs(os.path.join(self.base_exp_dir, 'meshes'), exist_ok=True)
 
-        # if world_space:
-        #     vertices = vertices * self.dataset.scale_mats_np[0][0, 0] + self.dataset.scale_mats_np[0][:3, 3][None]
-
+        # Create mesh object
         mesh = trimesh.Trimesh(vertices, triangles, process=False, maintain_order=True)
         no_view_dependence = True
+
 
         if with_color:
             normals = jt.array(mesh.vertex_normals.copy()).float()
@@ -464,107 +545,143 @@ class Runner:
         logging.info('End')
 
     def interpolate_view(self, img_idx_0, img_idx_1):
+        """
+        Interpolate views between two images and create a video.
+
+        Args:
+            img_idx_0: index of the first image
+            img_idx_1: index of the second image
+
+        Returns:
+            None
+        """
         images = []
         n_frames = 60
         video_dir = os.path.join(self.base_exp_dir, 'render')
         os.makedirs(video_dir, exist_ok=True)
+
+        # Generate interpolated views
         for i in range(n_frames):
             print(i)
-            images.append(self.render_novel_image(img_idx_0,
-                                                  img_idx_1,
-                                                  np.sin(((i / n_frames) - 0.5) * np.pi) * 0.5 + 0.5,
-                          resolution_level=4))
-            cv.imwrite(os.path.join(video_dir,
-                                    '{:0>8d}.png'.format(i)), images[-1])
-            
+            # Compute interpolation ratio
+            ratio = np.sin(((i / n_frames) - 0.5) * np.pi) * 0.5 + 0.5
+
+            # Render novel image
+            images.append(self.render_novel_image(img_idx_0, img_idx_1, ratio, resolution_level=4))
+
+            # Save the rendered image
+            cv.imwrite(os.path.join(video_dir, '{:0>8d}.png'.format(i)), images[-1])
+
+        # Reverse and append the interpolated views
         for i in range(n_frames):
             images.append(images[n_frames - i - 1])
 
+        # Create video writer
         fourcc = cv.VideoWriter_fourcc(*'mp4v')
         h, w, _ = images[0].shape
-        writer = cv.VideoWriter(os.path.join(video_dir,
-                                             '{:0>8d}_{}_{}.mp4'.format(self.iter_step, img_idx_0, img_idx_1)),
+        writer = cv.VideoWriter(os.path.join(video_dir, '{:0>8d}_{}_{}.mp4'.format(self.iter_step, img_idx_0, img_idx_1)),
                                 fourcc, 30, (w, h))
 
+        # Write images to the video
         for image in images:
             writer.write(image)
 
         writer.release()
 
 
-    def render_circle_image(self, recon_file=None, deform_file=None, use_deform=False, obj_path=None, \
+    def render_circle_image(self, recon_file=None, deform_file=None, use_deform=False, obj_path=None,
                             fix_camera=False, is_view_dependent=False, save_dir="", is_val=False, add_alpha=False):
+        """
+        Render images in a circular path and create a video.
+
+        Args:
+            recon_file: path to the reconstruction file
+            deform_file: path to the deformation file
+            use_deform: whether to use deformations
+            obj_path: path to the OBJ file
+            fix_camera: whether to fix the camera
+            is_view_dependent: whether the rendering is view-dependent
+            save_dir: directory to save the rendered images and video
+            is_val: whether it's a validation rendering
+            add_alpha: whether to add alpha channel to the rendered images
+
+        Returns:
+            None
+        """
+        # Generate the poses for rendering based on the mode (validation or circular)
         if is_val:
             render_poses = self.dataset.gen_validation_pose()
         else:
             render_poses = self.dataset.gen_circle_poses()
+
+        # Set the save directory for the rendered images and video
         if not save_dir:
             save_dir = os.path.join(self.base_exp_dir, 'render_circle')
         else:
             save_dir = os.path.join(self.base_exp_dir, save_dir)
+
+        # Generate the convex hull and deltas for deformations if required
         if use_deform:
             from utils import genConvexhullVolume, queryDelta
-            # from utils import genKNN as genConvexhullVolume
-            # from utils import queryDelta_KNN as queryDelta
             hull, deltas = genConvexhullVolume(recon_file, deform_file, fix_camera)
         else:
             hull = deltas = queryDelta = None
 
-        # from pytorch3d.io import load_objs_as_meshes
+        # Load the OBJ file as meshes if camera is fixed
         from utils import load_objs_as_meshes
         if fix_camera:
             print("FIX CAMERA")
             render_poses = render_poses[0:1].expand(len(deltas), *render_poses.shape[1:])
-            ### for laptop
-            # render_poses = render_poses[6:7].expand(len(deltas), *render_poses.shape[1:])
-            ### for hbychair
-            # render_poses = render_poses[26:27].expand(len(deltas), *render_poses.shape[1:])
-            ### for dinosaur
-            # render_poses = render_poses[22:23].expand(len(deltas), *render_poses.shape[1:])
             import glob
             mesh_files = sorted(glob.glob(os.path.join(args.obj_path, '*.obj')))
             mesh = load_objs_as_meshes(mesh_files)
         else:
-            ### load obj file for sampling
-            if args.obj_path:
-                mesh = load_objs_as_meshes(args.obj_path)
+            if obj_path:
+                mesh = load_objs_as_meshes(obj_path)
             else:
                 mesh = None
 
-        ### copy tets, deltas and meshes
+        # Create copies of hull, deltas, and mesh if camera is fixed
         import copy
         if fix_camera:
             deltas_copy = copy.deepcopy(deltas)
             hull_copy = copy.deepcopy(hull)
             mesh_copy = copy.deepcopy(mesh)
 
+        # Set the static camera pose if the rendering is view-dependent
         if is_view_dependent:
             c2w_staticcam = render_poses[0]
         else:
             c2w_staticcam = None
+
+        # Create the save directory if it doesn't exist
         os.makedirs(save_dir, exist_ok=True)
         images = []
+
+        # Render images for each pose
         for idx, render_pose in enumerate(render_poses):
-            print("render the %d / %d image" % (idx, len(render_poses)))
-            # if idx < 20:
-            #     continue
+            print("Rendering image %d / %d" % (idx, len(render_poses)))
+            # Use the copied hull, deltas, and mesh if camera is fixed
             if fix_camera:
                 hull, deltas, mesh = hull_copy[idx], deltas_copy[idx], mesh_copy[idx]
+            # Render the image for the current pose
             images.append(self.render_image(render_pose, use_deform, queryDelta, hull, deltas, mesh, c2w_staticcam))
+            # Save the rendered image
             if add_alpha:
                 cv.imwrite(os.path.join(save_dir, '{:0>8d}.png'.format(idx)), images[-1])
             else:
                 cv.imwrite(os.path.join(save_dir, '{:0>8d}.png'.format(idx)), images[-1][:,:,:3])
 
         if images[0].shape[-1] == 4:
-            # images = [img[:,:,:3] + (255 - img[:,:,3:]) for img in images]
             images = [img[:,:,:3] for img in images]
         
+        # Create video writer
         fourcc = cv.VideoWriter_fourcc(*'mp4v')
         h, w, _ = images[0].shape
         writer = cv.VideoWriter(os.path.join(save_dir, 'video.mp4'),
                                 fourcc, 10, (w, h))
-
+        
+        # Write images to the video
         for image in images:
             writer.write(image)
 
@@ -619,23 +736,24 @@ if __name__ == '__main__':
     parser.add_argument("--add_alpha", action='store_true', 
     help='add alpha channel')
 
+    # Parse command-line arguments
     args = parser.parse_args()
 
+    # Select the appropriate renderer based on the mode
     if args.mode == 'train' or args.mode == 'default':
         from models.render_train import NeuSRenderer
-        print("use train NeuS Renderer: total sampling ...")
+        print("Using train NeuS Renderer: total sampling ...")
     else:
         from models.renderer import NeuSRenderer
-        print("use test render NeuS Renderer: sparse sampling ...")
+        print("Using test render NeuS Renderer: sparse sampling ...")
 
-    # if args.use_llff == True:
-    #     print("Use colmap extimated poses ~!")
-    #     from models.dataset_llff import Dataset
-    # else:
+    # Import the dataset module
     from models.dataset import Dataset
 
+    # Create a Runner object based on the arguments
     runner = Runner(args.conf, args.mode, args.case, args.is_continue)
 
+    # Execute the appropriate operation based on the mode
     if args.mode == 'train':
         runner.train()
     elif args.mode == 'validate_mesh':
@@ -643,20 +761,16 @@ if __name__ == '__main__':
             resol = 256
         else:
             resol = 256
-        print("use resoluation %d for marching cube" % resol)
-        runner.validate_mesh(world_space=True, resolution=resol, threshold=args.mcube_threshold, \
+        print("Using resolution %d for marching cube" % resol)
+        runner.validate_mesh(world_space=True, resolution=resol, threshold=args.mcube_threshold,
                             with_color=True, do_dilation=args.do_dilation)
     elif args.mode.startswith('interpolate'):  # Interpolate views given two image indices
         _, img_idx_0, img_idx_1 = args.mode.split('_')
         img_idx_0 = int(img_idx_0)
         img_idx_1 = int(img_idx_1)
         runner.interpolate_view(img_idx_0, img_idx_1)
-    elif args.mode.startswith('circle'):  # circle views 
+    elif args.mode.startswith('circle'):  # Render circular views
         runner.batch_size = 300
-        runner.render_circle_image(args.reconstructed_mesh_file, args.deformed_mesh_file,\
-                args.use_deform, args.obj_path, args.fix_camera, args.is_view_dependent, args.savedir, add_alpha=args.add_alpha)
-    # elif args.mode.startswith('evaluate'):
-    #     print("use evaluation poses !!!")
-    #     runner.batch_size = 400
-    #     runner.render_circle_image(args.reconstructed_mesh_file, args.deformed_mesh_file,\
-    #             args.use_deform, args.obj_path, args.fix_camera, args.is_view_dependent, args.savedir, is_val=True)
+        runner.render_circle_image(args.reconstructed_mesh_file, args.deformed_mesh_file,
+                                args.use_deform, args.obj_path, args.fix_camera, args.is_view_dependent,
+                                args.savedir, add_alpha=args.add_alpha)

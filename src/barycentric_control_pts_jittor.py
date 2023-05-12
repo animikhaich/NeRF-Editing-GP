@@ -9,14 +9,25 @@ import numpy as np
 import glob
 
 def main(mesh_path, tet_path, deformed_path, check_output=False):
+    """
+    mesh_path: the original mesh file path
+    tet_path: the tetrahedral txt file path
+    deformed_path: the deformed mesh file path
+    check_output: whether to check the output is correct
+    """
+
+    # Load the trimesh
     mesh = trimesh.load_mesh(mesh_path, process=False, maintain_order=True)
     mesh_verts = jt.array(np.asarray(mesh.vertices)).float()
     tet_verts, tet_idx = readTXT(tet_path)
 
+    # Create the tetrahedral mesh
     tet_mesh = TetMesh(tet_verts, tet_idx)
 
+    # Find the tetrahedron ID and barycentric coordinate of each vertex
     tet_ids, barys = batchify(mesh_verts, tet_mesh)
 
+    # Load the deformed mesh
     save_path = deformed_path.replace(".obj", "_barycentric_control_simple3.txt")
     deformed_verts = trimesh.load_mesh(deformed_path, process=False, maintain_order=True).vertices
     deformed_verts = jt.array(np.asarray(deformed_verts)).float()
@@ -37,14 +48,25 @@ def main(mesh_path, tet_path, deformed_path, check_output=False):
         import ipdb; ipdb.set_trace()
 
 def main_seq(mesh_path, tet_path, deformed_paths, check_output=False):
+    """
+    mesh_path: the original mesh file path
+    tet_path: the tetrahedral txt file path
+    deformed_path: the deformed mesh file path
+    check_output: whether to check the output is correct
+    """
+
+    # Load the trimesh
     mesh = trimesh.load_mesh(mesh_path, process=False, maintain_order=True)
     mesh_verts = jt.array(np.asarray(mesh.vertices)).float()
     tet_verts, tet_idx = readTXT(tet_path)
 
+    # Create the tetrahedral mesh
     tet_mesh = TetMesh(tet_verts, tet_idx)
 
+    # Find the tetrahedron ID and barycentric coordinate of each vertex
     tet_ids, barys = batchify(mesh_verts, tet_mesh, chunk=100)
 
+    # Load the deformed mesh
     save_path = deformed_paths[0].replace(".obj", "_barycentric_control.txt")
     def f(x):
         out = trimesh.load_mesh(x, process=False, maintain_order=True).vertices
@@ -52,11 +74,19 @@ def main_seq(mesh_path, tet_path, deformed_paths, check_output=False):
         return out
     deformed_verts = list(map(f, deformed_paths))
 
+    # save control points
     saveControlPtsSeq(tet_ids, barys, deformed_verts, save_path)
 
 def batchify(verts, tet_mesh, chunk=100):
-    """find verts in which tets in batch.
     """
+    find verts in which tets in batch.
+
+    verts: [N,3]
+    tet_mesh: TetMesh
+    chunk: int, batch size
+
+    """
+    # Find the tetrahedron ID and barycentric coordinate of each vertex
     tet_ids, barys = [], []
     for i in range(0, verts.shape[0], chunk):
         print("quering one chunk ...")
@@ -67,6 +97,9 @@ def batchify(verts, tet_mesh, chunk=100):
 
 
 def saveControlPts(tet_ids, barys, deformed_verts, control_txt_path) -> None:
+    """
+    save the control points to txt file.
+    """
     with open(control_txt_path, 'w') as cf:
         cf.write('1\n')
         cf.write('%d\n' % len(deformed_verts))
@@ -81,6 +114,9 @@ def saveControlPts(tet_ids, barys, deformed_verts, control_txt_path) -> None:
     print("write control txt to %s" % control_txt_path)
 
 def saveControlPtsSeq(tet_ids, barys, deformed_verts, control_txt_path) -> None:
+    """
+    save the control points to txt file.
+    """
     with open(control_txt_path, 'w') as cf:
         cf.write('%d\n' % (len(deformed_verts)))  # number of seqence
         print("saving %d sequence" % (len(deformed_verts)))

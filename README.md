@@ -1,37 +1,63 @@
-# NeRF-Editing: Geometry Editing of Neural Radiance Fields
+# NeRF-Editing
 
 ![Teaser image](./img/teaser.gif)
 
-## Abstract
+## Environment Setup
 
-Implicit neural rendering, especially Neural Radiance Field (NeRF), has shown great potential in novel view synthesis of a scene. However, current NeRF-based methods cannot enable users to perform user-controlled shape deformation in the scene. While existing works have proposed some approaches to modify the radiance field according to the user's constraints, the modification is limited to color editing or object translation and rotation. In this paper, we propose a method that allows users to perform controllable shape deformation on the implicit representation of the scene, and synthesizes the novel view images of the edited scene without re-training the network. Specifically, we establish a correspondence between the extracted explicit mesh representation and the implicit neural representation of the target scene. Users can first utilize well-developed mesh-based deformation methods to deform the mesh representation of the scene. Our method then utilizes user edits from the mesh representation to bend the camera rays by introducing a tetrahedra mesh as a proxy, obtaining the rendering results of the edited scene. Extensive experiments demonstrate that our framework can achieve ideal editing results not only on synthetic data, but also on real scenes captured by users.
+Install CUDA 11.7 from [here](https://developer.nvidia.com/cuda-11-7-1-download-archive).
 
-## Environment
-* Install [jittor](https://github.com/Jittor/jittor)
-    <details>
-    <summary> Other dependencies (click to expand) </summary>
+```bash
+# Create Conda Environment
+conda create -n nerf_editing python=3.9
+conda activate nerf_editing
 
-    - opencv_python==4.5.2.52
-    - imageio==2.17.0
-    - trimesh==3.9.8 
-    - numpy==1.19.2
-    - pyhocon==0.3.57
-    - icecream==2.1.0
-    - tqdm==4.50.2
-    - scipy==1.7.0
-    - PyMCubes==0.1.2
-    - natsort==8.1.0
-    - tensorboardX-2.5
+# Install System Dependencies
+sudo apt update -y && sudo apt install --upgrade gcc g++ wget llvm-6.0 freeglut3 freeglut3-dev  libxi-dev libxmu-dev ffmpeg -y
+sudo wget https://github.com/mmatl/travis_debs/raw/master/xenial/mesa_18.3.3-0.deb
+sudo dpkg -i ./mesa_18.3.3-0.deb || true
 
-    </details>
+# Install compatible PyOpenGL
+git clone https://github.com/mmatl/pyopengl.git
+pip install ./pyopengl
 
-We also use the pyrender to get the depth map.
+# Install Remaining Dependencies
+pip install -r requirements.txt
+
+# Build OpenVolumeMesh
+cd OpenVolumeMesh/OpenVolumeMesh
+mkdir build && cd build
+sudo cmake .. && sudo make -j8
+sudo make install
+
+# Build simple_mesh
+cd ../../
+mkdir build && cd build
+cmake .. && make -j8
+
+# Build TetWild
+cd ../../TetWild
+mkdir build && cd build
+cmake .. && make -j8
+cd ../../
+
+# Build Eigen
+cd volumeARAP_batch/Eigen
+mkdir build && cd build
+cmake .. && make -j8
+cd ../../
+
+# Build volumeARAP_batch
+cd volumeARAP_batch
+mkdir build && cd build
+cmake .. && make -j8
+cd ../../
 ```
-pip install pyrender
+
+Ensure Jittor is working by running:
+```bash
+python -c "import jittor; print(jittor.__version__)"
 ```
 
-* Download [OpenVolumeMesh](https://www.graphics.rwth-aachen.de/software/openvolumemesh/download/) to the `OpenVolumeMesh` folder
-* Download [Eigen](https://eigen.tuxfamily.org/index.php?title=Main_Page) to the `volumeARAP_batch/Eigen` folder
 
 ## Data preparation
 
@@ -55,15 +81,28 @@ We now provide a provide a ready-to-use dataset `hbychair` collected by ourselve
 
 Or you can use [nerf-synthetic dataset](https://drive.google.com/drive/folders/128yBriW1IG_3NJ5Rp7APSTZsJqdJdfc1) directly, see `./confs/wmask_lego.conf` as an example.
 
-## Technological process
-
-##### Training
-we adopt the training strategy of [NeuS](https://github.com/Totoro97/NeuS).
-
+##### Steps to run the code
 ```
 python exp_runner.py --mode train --conf ./confs/womask_hbychair.conf --case hbychair_neus
 ```
 
+For the remaining steps we provide ready-made bash scripts which allow step by step execution of the code. (Please modify the directory structure in the scripts before running them.)
+
+```bash
+bash post_training.sh
+```
+
+# Deform the mesh: Kathakoli, edit this. 
+Download blender from here: https://www.blender.org/download/
+
+
+Post deformation, run the following script to render the deformed mesh.
+```bash
+bash render_deformed.sh
+```
+
+
+## A detailed step-by-step method to run the code is given below in-case the scripts do not work or throw error.
 ##### Extract mesh
  ```
 python exp_runner.py --mode validate_mesh --conf ./confs/womask_hbychair.conf --case hbychair_neus --is_continue # use latest checkpoint
@@ -144,18 +183,4 @@ python exp_runner.py --mode circle --conf ./confs/womask_hbychair_render.conf --
 ```
 
 ## Acknowledgement
-This code borrows heavily from [NeuS](https://github.com/Totoro97/NeuS).
-
-## Citation
-
-If you found this code useful please cite our work as:
-
-```
-@inproceedings{yuan2022nerf,
-  title={NeRF-editing: geometry editing of neural radiance fields},
-  author={Yuan, Yu-Jie and Sun, Yang-Tian and Lai, Yu-Kun and Ma, Yuewen and Jia, Rongfei and Gao, Lin},
-  booktitle={Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition},
-  pages={18353--18364},
-  year={2022}
-}
-```
+This code borrows heavily from [https://github.com/IGLICT/NeRF-Editing](https://github.com/IGLICT/NeRF-Editing). We thank the authors for their great work.
